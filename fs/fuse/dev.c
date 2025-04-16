@@ -7,6 +7,7 @@
 */
 
 #include "fuse_i.h"
+#include "extfuse_i.h"
 
 #include <linux/init.h>
 #include <linux/module.h>
@@ -507,6 +508,10 @@ ssize_t fuse_simple_request(struct fuse_mount *fm, struct fuse_args *args)
 	/* Needs to be done after fuse_get_req() so that fc->minor is valid */
 	fuse_adjust_compat(fc, args);
 	fuse_args_to_req(req, args);
+
+	// TODO: NOT SURE
+	if ((ret = extfuse_request_send(fc, req)) != -ENOSYS)
+		return ret;
 
 	if (!args->noreply)
 		__set_bit(FR_ISREPLY, &req->flags);

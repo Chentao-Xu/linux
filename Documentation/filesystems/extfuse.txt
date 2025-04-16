@@ -1,0 +1,4 @@
+ExtFUSE: Extension Framework for FUSE
+
+ExtFUSE allows developers to register BPF code with the FUSE driver to
+handle file system requests in the kernel.

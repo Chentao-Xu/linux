@@ -841,6 +841,9 @@ struct fuse_conn {
 
 	/* New writepages go into this bucket */
 	struct fuse_sync_bucket __rcu *curr_bucket;
+
+	/* priv data, used by extfuse */
+	void *fc_priv;
 };
 
 /*
