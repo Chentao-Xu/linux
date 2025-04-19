@@ -1213,8 +1213,9 @@ static void process_init_reply(struct fuse_mount *fm, struct fuse_args *args,
 				fc->init_security = 1;
 			if (flags & FUSE_CREATE_SUPP_GROUP)
 				fc->create_supp_group = 1;
-			if (flags & FUSE_FS_EXTFUSE)
+			if (flags & FUSE_FS_EXTFUSE) {
 				extfuse_load_prog(fc, arg->extfuse_prog_fd);
+			}
 		} else {
 			ra_pages = fc->max_read / PAGE_SIZE;
 			fc->no_lock = 1;
@@ -1290,9 +1291,11 @@ void fuse_send_init(struct fuse_mount *fm)
 	ia->args.force = true;
 	ia->args.nocreds = true;
 	ia->args.end = process_init_reply;
-
-	if (fuse_simple_background(fm, &ia->args, GFP_KERNEL) != 0)
+	
+	if (fuse_simple_background(fm, &ia->args, GFP_KERNEL) != 0) {
+		pr_info("fuse_send_init ia->out: %d", ia->out.extfuse_prog_fd);
 		process_init_reply(fm, &ia->args, -ENOTCONN);
+	}
 }
 EXPORT_SYMBOL_GPL(fuse_send_init);
 

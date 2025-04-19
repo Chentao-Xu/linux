@@ -93,7 +93,7 @@ int extfuse_load_prog(struct fuse_conn *fc, int fd)
 	if (!data)
 		return -ENOMEM;
 
-	prog = bpf_prog_get_type(fd, BPF_PROG_TYPE_EXTFUSE);
+	prog = bpf_prog_get(fd);
 	if (IS_ERR(prog)) {
 		pr_err("ExtFUSE bpf prog fd=%d failed: %ld\n",
 			fd, PTR_ERR(prog));

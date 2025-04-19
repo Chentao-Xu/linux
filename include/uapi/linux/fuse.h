@@ -409,7 +409,7 @@ struct fuse_file_lock {
 #define FUSE_HAS_INODE_DAX	(1ULL << 33)
 #define FUSE_CREATE_SUPP_GROUP	(1ULL << 34)
 #define FUSE_HAS_EXPIRE_ONLY	(1ULL << 35)
-#define FUSE_FS_EXTFUSE		(1ULL << 36)
+#define FUSE_FS_EXTFUSE		(1ULL << 40)
 
 /**
  * CUSE INIT request/reply flags
@@ -818,8 +818,9 @@ struct fuse_init_out {
 	uint16_t	max_pages;
 	uint16_t	map_alignment;
 	uint32_t	flags2;
+	uint32_t 	max_stack_depth;
 	uint32_t	extfuse_prog_fd;
-	uint32_t	unused[6];
+	uint32_t	unused[5];
 };
 
 #define CUSE_INIT_INFO_MAX 4096
