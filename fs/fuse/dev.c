@@ -526,6 +526,35 @@ ssize_t fuse_simple_request(struct fuse_mount *fm, struct fuse_args *args)
 	return ret;
 }
 
+ssize_t fuse_read_request(struct fuse_mount *fm, struct fuse_args *args)
+{
+	pr_info("entering fuse_read_request\n");
+	struct fuse_conn *fc = fm->fc;
+	struct fuse_req *req;
+
+	if (args->force) {
+		atomic_inc(&fc->num_waiting);
+		req = fuse_request_alloc(fm, GFP_KERNEL | __GFP_NOFAIL);
+
+		if (!args->nocreds)
+			fuse_force_creds(req);
+
+		__set_bit(FR_WAITING, &req->flags);
+		__set_bit(FR_FORCE, &req->flags);
+	} else {
+		WARN_ON(args->nocreds);
+		req = fuse_get_req(fm, false);
+		if (IS_ERR(req))
+			return PTR_ERR(req);
+	}
+
+	/* Needs to be done after fuse_get_req() so that fc->minor is valid */
+	fuse_adjust_compat(fc, args);
+	fuse_args_to_req(req, args);
+
+	return extfuse_request_send(fc, req);
+}
+
 static bool fuse_request_queue_background(struct fuse_req *req)
 {
 	struct fuse_mount *fm = req->fm;

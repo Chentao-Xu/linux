@@ -7,6 +7,7 @@
 */
 
 #include "fuse_i.h"
+#include "extfuse_i.h"
 
 #include <linux/pagemap.h>
 #include <linux/slab.h>
@@ -1648,10 +1649,40 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 	if (FUSE_IS_DAX(inode))
 		return fuse_dax_read_iter(iocb, to);
 
-	if (!(ff->open_flags & FOPEN_DIRECT_IO))
+	if (!(ff->open_flags & FOPEN_DIRECT_IO)) {
+
+		/* ======== EXT-FUSE hook for read start ======== */
+		struct fuse_io_priv io = FUSE_IO_PRIV_SYNC(iocb);
+		struct file *file2 = io.iocb->ki_filp;
+		struct fuse_file *ff2 = file2->private_data;
+		struct fuse_mount *fm = ff2->fm;
+		struct fuse_conn *fc = fm->fc;
+		unsigned int max_pages = iov_iter_npages(to, fc->max_pages);
+		struct fuse_io_args *ia = fuse_io_alloc(&io, max_pages);
+		loff_t pos = iocb->ki_pos;
+		size_t count = min_t(size_t, fc->max_read, iov_iter_count(to));
+		count = min_t(size_t, count, PAGE_SIZE);
+		fl_owner_t owner = current->files;
+		pr_info("fuse_file_read_iter: offset=%lld, count=%zu\n", pos, count);
+
+		// count NOT SURE
+		fuse_read_args_fill(ia, file2, pos, count, FUSE_READ);
+		if (owner != NULL) {
+			ia->read.in.read_flags |= FUSE_READ_LOCKOWNER;
+			ia->read.in.lock_owner = fuse_lock_owner_id(fc, owner);
+		}
+
+		struct fuse_args *args = &ia->ap.args;
+		ssize_t ret;
+
+		if ((ret = fuse_read_request(fm, args)) != -ENOSYS)
+			return ret;
+		/* ======== EXT-FUSE hook for read end ======== */
+
 		return fuse_cache_read_iter(iocb, to);
-	else
+	} else {
 		return fuse_direct_read_iter(iocb, to);
+	}
 }
 
 static ssize_t fuse_file_write_iter(struct kiocb *iocb, struct iov_iter *from)
