@@ -1666,17 +1666,53 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 
 		// count NOT SURE
 		fuse_read_args_fill(ia, file2, pos, count, FUSE_READ);
+		struct fuse_args *args = &ia->ap.args;
+		args->in_numargs = 2;
+		args->in_args[1].size = sizeof(file2);
+		args->in_args[1].value = &file2;
 		if (owner != NULL) {
 			ia->read.in.read_flags |= FUSE_READ_LOCKOWNER;
 			ia->read.in.lock_owner = fuse_lock_owner_id(fc, owner);
 		}
 
-		struct fuse_args *args = &ia->ap.args;
-		ssize_t ret;
+		// ==== 分配输出缓冲区供 BPF 写入 ====
+		void *bpf_output_buf = kzalloc(count, GFP_KERNEL);
+		if (!bpf_output_buf) {
+			kfree(ia);  // 清理已分配 fuse_io_args
+			pr_info("EXT-FUSE read: failed to allocate output buffer\n");
+			goto fallback;
+		}
+		args->out_args[0].size = count;
+		args->out_args[0].value = bpf_output_buf;
+		args->out_numargs = 1;
 
-		if ((ret = fuse_read_request(fm, args)) != -ENOSYS)
-			return ret;
+		ssize_t ret = fuse_read_request(fm, args);
+
+		// 如果 BPF 成功处理 read 请求，直接从 args->out 中获取数据
+		if (ret >= 0) {
+			void *data = args->out_args[0].value;
+			size_t data_size = args->out_args[0].size;
+
+			if (data && data_size > 0) {
+				ssize_t copied = copy_to_iter(data, data_size, to);
+				pr_info("EXT-FUSE read: copied %zd bytes from BPF to user\n", copied);
+				iocb->ki_pos += copied;
+				kfree(bpf_output_buf);
+				kfree(ia);
+				return copied;
+			} else {
+				pr_info("EXT-FUSE read: BPF returned no data\n");
+				kfree(bpf_output_buf);
+				kfree(ia);
+				return 0;
+			}
+		}
+
+		kfree(bpf_output_buf);
+		kfree(ia);
 		/* ======== EXT-FUSE hook for read end ======== */
+
+		fallback:
 
 		return fuse_cache_read_iter(iocb, to);
 	} else {

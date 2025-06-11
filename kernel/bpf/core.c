@@ -2670,6 +2670,16 @@ const struct bpf_func_proto bpf_get_retval_proto __weak;
 const struct bpf_func_proto bpf_extfuse_write_args_proto __weak;
 const struct bpf_func_proto bpf_extfuse_read_args_proto __weak;
 
+const struct bpf_func_proto bpf_helper_memcpy_proto __weak;
+const struct bpf_func_proto bpf_malloc_proto __weak;
+const struct bpf_func_proto bpf_free_proto __weak;
+const struct bpf_func_proto bpf_mem_read_proto __weak;
+const struct bpf_func_proto bpf_mem_write_proto __weak;
+const struct bpf_func_proto sbpf_memcmp_proto __weak;
+const struct bpf_func_proto sbpf_memset_proto __weak;
+
+const struct bpf_func_proto bpf_extfuse_read_passthrough_proto __weak;
+
 const struct bpf_func_proto * __weak bpf_get_trace_printk_proto(void)
 {
 	return NULL;

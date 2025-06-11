@@ -14,6 +14,13 @@ typedef enum {
 	IN_PARAM_2_VALUE,
 	OUT_PARAM_0,
 	OUT_PARAM_1,
+	READ_PASSTHROUGH,
 } extfuse_arg_t;
+
+struct read_passthrough_in {
+	uint64_t fh;    // file handle
+	uint64_t offset; // offset to read from
+	uint64_t size;   // size of data to read
+};
 
 #endif /* _LINUX_EXTFUSE_H */

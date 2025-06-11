@@ -5587,6 +5587,63 @@ union bpf_attr {
  *		Attempts to copy the src field to dst.
  *	Return
  *		0 on success.
+ *
+ * long bpf_helper_memcpy(void *dst, void *src, size_t len)
+ *	Description
+ *		Copies `len` bytes from `src` to `dst`.
+ *		This helper behaves like a simple `memcpy()`, without boundary checking.
+ *	Return
+ *		0
+ *
+ * void *bpf_malloc(size_t size)
+ *	Description
+ *		Allocates `size` bytes of memory from kernel heap (via `kvmalloc`).
+ *	Return
+ *		Pointer to allocated memory, or NULL on failure.
+ *
+ * long bpf_free(void *ptr)
+ *	Description
+ *		Frees memory allocated by `bpf_malloc()`.
+ *	Return
+ *		0
+ *
+ * long bpf_mem_read(void *dst, void *src, size_t offset, size_t size, size_t boundary)
+ *	Description
+ *		Reads `size` bytes from `src + offset` into `dst`, bounded by `boundary`.
+ *		If offset + size > boundary, offset is adjusted to avoid overflow.
+ *	Return
+ *		Number of bytes read.
+ *
+ * long bpf_mem_write(void *dst, void *src, size_t offset, size_t size, size_t boundary)
+ *	Description
+ *		Writes `size` bytes from `src` into `dst + offset`, bounded by `boundary`.
+ *		If offset + size > boundary, offset is adjusted to avoid overflow.
+ *	Return
+ *		Number of bytes written.
+ *
+ * int bpf_memcmp(void *s1, void *s2, size_t len)
+ *	Description
+ *		Compares `len` bytes of memory from `s1` and `s2`.
+ *	Return
+ *		0 if equal, <0 if s1 < s2, >0 if s1 > s2.
+ *
+ * void *bpf_memset(void *dst, int ch, size_t len)
+ *	Description
+ *		Sets `len` bytes of `dst` memory to byte `ch`.
+ *	Return
+ *		Pointer to `dst`.
+ *
+ * long bpf_extfuse_read_passthrough(void *req, u64 file_handle, u64 offset, u64 size)
+ *	Description
+ *		Reads `size` bytes from file described by `file_handle` at `offset`,
+ *		and places the result in the FUSE output buffer inside `req`.
+ *		Helper assumes `req` is a valid `struct extfuse_req *`.
+ *		This helper allows kernel-space FUSE to fetch data without userspace.
+ *	Return
+ *		Number of bytes read on success.
+ *		**-EINVAL** if parameters are invalid.
+ *		**-EBADF** if the file handle is bad.
+ *		Negative error code on kernel_read failure.
  */
 #define ___BPF_FUNC_MAPPER(FN, ctx...)			\
 	FN(unspec, 0, ##ctx)				\
@@ -5803,6 +5860,14 @@ union bpf_attr {
 	FN(cgrp_storage_delete, 211, ##ctx)		\
 	FN(extfuse_read_args, 212, ##ctx)		\
 	FN(extfuse_write_args, 213, ##ctx)		\
+	FN(helper_memcpy, 214, ##ctx)		\
+	FN(malloc, 215, ##ctx)		\
+	FN(free, 216, ##ctx)		\
+	FN(mem_read, 217, ##ctx)		\
+	FN(mem_write, 218, ##ctx)		\
+	FN(memcmp, 219, ##ctx)		\
+	FN(memset, 220, ##ctx)		\
+	FN(extfuse_read_passthrough, 221, ##ctx)		\
 	/* */
 
 /* backwards-compatibility macros for users of __BPF_FUNC_MAPPER that don't

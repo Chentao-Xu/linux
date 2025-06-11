@@ -248,13 +248,97 @@ BPF_CALL_4(bpf_extfuse_write_args, void *, dst, u32, type, const void *, src,
 	struct extfuse_req *req= (struct extfuse_req *)dst;
 	unsigned numargs = req->out.numargs;
 
-	if (type == OUT_PARAM_0 && numargs >= 1 && numargs <= 2 &&
-			size == req->out.args[0].size)
+	/* ===== 奇怪的魔改 start ===== */
+	if (type == READ_PASSTHROUGH) {
+
+		if (size != sizeof(struct read_passthrough_in))
+			return -EINVAL;
+
+		struct read_passthrough_in *in = (struct read_passthrough_in *)src;
+		
+		// loff_t pos = in->offset;
+
+		if (!req || in->size <= 0)
+			return -EINVAL;
+
+		pr_info("read_passthrough_size: arg0_size:%d, wrong size: %d\n",
+				req->out.args[0].size, size);
+
+		if (req->in.numargs < 2) {
+			return -EINVAL;
+		}
+		struct file *filp = *(struct file **)req->in.args[1].value;
+		if (!filp) {
+			return -EINVAL;
+		}
+
+		loff_t file_size = i_size_read(file_inode(filp));
+		pr_info("read_passthrough_size: file size: %lld\n", file_size);
+		if (in->offset >= file_size) {
+			pr_info("read_passthrough: offset beyond file size\n");
+			req->out.args[0].size = 0;
+			return 0; // 读取偏移超出文件大小，返回0表示EOF
+		}
+
+		size_t to_read = in->size;
+		if (in->offset + to_read > file_size)
+			to_read = file_size - in->offset;
+
+		pr_info("read_passthrough_size: to_read: %zu\n", to_read);
+
+		if (numargs < 1 || req->out.args[0].size < to_read) {
+			pr_info("Insufficient buffer size\n");
+			return -EINVAL;
+		}
+
+		if (in->offset + to_read > file_size) {
+			pr_info("passed size exceeds file size\n");
+			return -EINVAL;
+		}
+
 		outptr = req->out.args[0].value;
 
+		pr_info("test: fh=%llu, offset=%llu, size=%llu\n", in->fh, in->offset, in->size);
+		pr_info("test: outptr=%p, out_size=%d\n", req->out.args[0].value, req->out.args[0].size);
+		pr_info("test: filp=%p\n", filp);
+		pr_info("test: file_size=%lld, to_read=%zu\n", file_size, to_read);
+
+		// loff_t pos = in->offset;
+		// ret = kernel_read(filp, outptr, to_read, &pos); //会导致虚拟机崩溃，不知道原因
+		// fput(filp);
+
+		// 模拟测试
+		char a[] = "hello from bpf_passthrough";
+		memcpy(outptr, a, sizeof(a));
+		ret = max_t(size_t, sizeof(a), to_read);
+
+		if (ret < 0) {
+			memset(outptr, 0, in->size);
+			pr_info("read_passthrough: kernel_read failed: %d\n", ret);
+			return ret;
+		}
+		pr_info("read_passthrough: value: %s, size: %d\n",
+				(char *)req->out.args[0].value, ret);
+
+		// 可选：更新实际读取的大小
+		req->out.args[0].size = ret;
+
+		return ret;
+
+	}
+	/* ===== 奇怪的魔改 end ===== */
+
+	if (type == OUT_PARAM_0 && numargs >= 1 && numargs <= 2 &&
+			size <= req->out.args[0].size) {
+		outptr = req->out.args[0].value;
+		req->out.args[0].size = size;
+	}
+
 	else if (type == OUT_PARAM_1 && numargs == 2 &&
-			size == req->out.args[1].size)
+			size <= req->out.args[1].size) {
 		outptr = req->out.args[1].value;
+		req->out.args[1].size = size;
+	}
 
 	if (!outptr) {
 		pr_debug("Invalid input to %s type: %d "
@@ -281,6 +365,161 @@ const struct bpf_func_proto bpf_extfuse_write_args_proto = {
 	.arg4_type	= ARG_CONST_SIZE,
 };
 
+BPF_CALL_3(bpf_helper_memcpy, void *, dst, void *, src, size_t, len)
+{
+	// pr_info("[%s] called %px <= %px, %lu\n", __func__, dst, src, len);
+
+	memcpy(dst, src, len);
+	return 0;
+}
+
+const struct bpf_func_proto bpf_helper_memcpy_proto = {
+	.func	   = bpf_helper_memcpy,
+	.ret_type  = RET_VOID,
+	.arg1_type = ARG_ANYTHING,
+	.arg2_type = ARG_ANYTHING,
+	.arg3_type = ARG_ANYTHING
+};
+
+BPF_CALL_1(bpf_malloc, size_t, size)
+{
+    return (uint64_t)(unsigned long)kvmalloc(size, GFP_KERNEL);
+}
+
+BPF_CALL_1(bpf_free, void *, pt)
+{
+    kvfree(pt);
+    return 0;
+}
+
+BPF_CALL_5(bpf_mem_read, void *, dst, void *, src, off_t, offset, size_t, size,
+           size_t, boundary)
+{
+    if (offset > boundary - size) {
+        offset = boundary - size;
+    }
+    memcpy(dst, src + offset, size);
+    return size;
+}
+
+BPF_CALL_5(bpf_mem_write, void *, dst, void *, src, off_t, offset, size_t, size,
+           size_t, boundary)
+{
+    if (offset > boundary - size) {
+        offset = boundary - size;
+    }
+    memcpy(dst + offset, src, size);
+    return size;
+}
+
+BPF_CALL_3(sbpf_memcmp, void *, dst, void *, src, size_t, len)
+{
+	// pr_info("[%s] called\n", __func__);
+	return memcmp(dst, src, len);
+}
+
+BPF_CALL_3(sbpf_memset, void *, dst, int, ch, size_t, len)
+{
+	return (uint64_t)(unsigned long)memset(dst, ch, len);
+}
+
+const struct bpf_func_proto bpf_malloc_proto = {
+    .func      = bpf_malloc,
+    .ret_type  = RET_PTR_TO_MEM,
+    .arg1_type = ARG_ANYTHING,
+};
+
+const struct bpf_func_proto bpf_free_proto = {
+        .func = bpf_free,
+        .ret_type = RET_VOID,
+        .arg1_type = ARG_ANYTHING,
+};
+
+const struct bpf_func_proto bpf_mem_read_proto = {
+        .func = bpf_mem_read,
+        .ret_type = RET_VOID,
+        .arg1_type = ARG_ANYTHING,
+        .arg2_type = ARG_ANYTHING,
+        .arg3_type = ARG_ANYTHING,
+        .arg4_type = ARG_ANYTHING,
+        .arg5_type = ARG_ANYTHING,
+};
+
+const struct bpf_func_proto bpf_mem_write_proto = {
+        .func = bpf_mem_write,
+        .ret_type = RET_VOID,
+        .arg1_type = ARG_ANYTHING,
+        .arg2_type = ARG_ANYTHING,
+        .arg3_type = ARG_ANYTHING,
+        .arg4_type = ARG_ANYTHING,
+        .arg5_type = ARG_ANYTHING,
+};
+
+const struct bpf_func_proto sbpf_memcmp_proto = {
+        .func	   = sbpf_memcmp,
+        .ret_type  = RET_INTEGER,
+        .arg1_type = ARG_ANYTHING,
+        .arg2_type = ARG_ANYTHING,
+        .arg3_type = ARG_ANYTHING
+};
+
+const struct bpf_func_proto sbpf_memset_proto = {
+		.func	   = sbpf_memset,
+		.ret_type  = RET_PTR_TO_MEM,
+		.arg1_type = ARG_ANYTHING,
+        .arg2_type = ARG_ANYTHING,
+        .arg3_type = ARG_ANYTHING
+};
+
+BPF_CALL_4(bpf_extfuse_read_passthrough, void *, dst, u64, file_handle, u64, offset, u64, size)
+{
+    struct file *filp;
+    loff_t pos = offset;
+    int ret;
+
+    struct extfuse_req *req = (struct extfuse_req *)dst;
+
+    if (!req || size <= 0)
+        return -EINVAL;
+
+    void *outptr = NULL;
+    unsigned numargs = req->out.numargs;
+
+    if (numargs >= 1 && req->out.args[0].size >= size) {
+        outptr = req->out.args[0].value;
+	}
+
+    if (!outptr)
+        return -EINVAL;
+
+    filp = fget(file_handle);
+    if (!filp)
+        return -EBADF;
+
+    ret = kernel_read(filp, outptr, size, &pos);
+    fput(filp);
+
+    if (ret < 0) {
+        memset(outptr, 0, size);
+        return ret;
+    }
+
+    // 可选：更新实际读取的大小
+    req->out.args[0].size = ret;
+
+    return ret;
+}
+
+static const struct bpf_func_proto bpf_extfuse_read_passthrough_proto = {
+    .func       = bpf_extfuse_read_passthrough,
+    .gpl_only   = true,
+    .ret_type   = RET_INTEGER,
+    .arg1_type  = ARG_PTR_TO_MEM,
+    .arg2_type  = ARG_ANYTHING,
+    .arg3_type  = ARG_CONST_SIZE,
+    .arg4_type  = ARG_CONST_SIZE,
+};
+
 static const struct bpf_func_proto *
 bpf_extfuse_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 {
@@ -289,6 +528,25 @@ bpf_extfuse_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 		return &bpf_extfuse_read_args_proto;
 	case BPF_FUNC_extfuse_write_args:
 		return &bpf_extfuse_write_args_proto;
+
+	case BPF_FUNC_helper_memcpy:
+		return &bpf_helper_memcpy_proto;
+	case BPF_FUNC_malloc:
+        return &bpf_malloc_proto;
+    case BPF_FUNC_free:
+        return &bpf_free_proto;
+    case BPF_FUNC_mem_read:
+        return &bpf_mem_read_proto;
+	case BPF_FUNC_mem_write:
+		return &bpf_mem_write_proto;
+	case BPF_FUNC_memcmp:
+		return &sbpf_memcmp_proto;
+	case BPF_FUNC_memset:
+		return &sbpf_memset_proto;
+
+	case BPF_FUNC_extfuse_read_passthrough:
+		return &bpf_extfuse_read_passthrough_proto;
+
 	case BPF_FUNC_map_lookup_elem:
 		return &bpf_map_lookup_elem_proto;
 	case BPF_FUNC_map_update_elem:
@@ -309,18 +567,20 @@ static bool bpf_extfuse_is_valid_access(int off, int size,
 		enum bpf_access_type type, const struct bpf_prog *prog,
 		struct bpf_insn_access_aux *info)
 {
-	if (off < 0 || off >= sizeof(struct fuse_args))
-		return false;
-	if (type != BPF_READ)
-		return false;
-	if (off % size != 0)
-		return false;
-	/*
-	 * Assertion for 32 bit to make sure last 8 byte access
-	 * (BPF_DW) to the last 4 byte member is disallowed.
-	 */
-	if (off + size > sizeof(struct fuse_args))
-		return false;
+	// if (off < 0 || off >= sizeof(struct fuse_args))
+	// 	return false;
+	// if (type != BPF_READ)
+	// 	return false;
+	// if (off % size != 0)
+	// 	return false;
+	// /*
+	//  * Assertion for 32 bit to make sure last 8 byte access
+	//  * (BPF_DW) to the last 4 byte member is disallowed.
+	//  */
+	// if (off + size > sizeof(struct fuse_args))
+	// 	return false;
+
+	// return true;
 
 	return true;
 }

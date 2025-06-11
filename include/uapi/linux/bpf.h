@@ -5790,6 +5790,14 @@ union bpf_attr {
 	FN(cgrp_storage_delete, 211, ##ctx)		\
 	FN(extfuse_read_args, 212, ##ctx)		\
 	FN(extfuse_write_args, 213, ##ctx)		\
+	FN(helper_memcpy, 214, ##ctx)		\
+	FN(malloc, 215, ##ctx)		\
+	FN(free, 216, ##ctx)		\
+	FN(mem_read, 217, ##ctx)		\
+	FN(mem_write, 218, ##ctx)		\
+	FN(memcmp, 219, ##ctx)		\
+	FN(memset, 220, ##ctx)		\
+	FN(extfuse_read_passthrough, 221, ##ctx)		\
 	/* */
 
 /* backwards-compatibility macros for users of __BPF_FUNC_MAPPER that don't

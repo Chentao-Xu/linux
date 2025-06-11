@@ -1665,6 +1665,16 @@ const struct bpf_func_proto bpf_task_pt_regs_proto __weak;
 const struct bpf_func_proto bpf_extfuse_write_args_proto __weak;
 const struct bpf_func_proto bpf_extfuse_read_args_proto __weak;
 
+const struct bpf_func_proto bpf_helper_memcpy_proto __weak;
+const struct bpf_func_proto bpf_malloc_proto __weak;
+const struct bpf_func_proto bpf_free_proto __weak;
+const struct bpf_func_proto bpf_mem_read_proto __weak;
+const struct bpf_func_proto bpf_mem_write_proto __weak;
+const struct bpf_func_proto sbpf_memcmp_proto __weak;
+const struct bpf_func_proto sbpf_memset_proto __weak;
+
+const struct bpf_func_proto bpf_extfuse_read_passthrough_proto __weak;
+
 const struct bpf_func_proto *
 bpf_base_func_proto(enum bpf_func_id func_id)
 {
@@ -1717,6 +1727,22 @@ bpf_base_func_proto(enum bpf_func_id func_id)
 		return &bpf_extfuse_read_args_proto;
 	case BPF_FUNC_extfuse_write_args:
 		return &bpf_extfuse_write_args_proto;
+	case BPF_FUNC_helper_memcpy:
+		return &bpf_helper_memcpy_proto;
+	case BPF_FUNC_malloc:
+        return &bpf_malloc_proto;
+    case BPF_FUNC_free:
+        return &bpf_free_proto;
+    case BPF_FUNC_mem_read:
+        return &bpf_mem_read_proto;
+	case BPF_FUNC_mem_write:
+		return &bpf_mem_write_proto;
+	case BPF_FUNC_memcmp:
+		return &sbpf_memcmp_proto;
+	case BPF_FUNC_memset:
+		return &sbpf_memset_proto;
+	case BPF_FUNC_extfuse_read_passthrough:
+		return &bpf_extfuse_read_passthrough_proto;
 	default:
 		break;
 	}
