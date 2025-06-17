@@ -1662,7 +1662,7 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 		loff_t pos = iocb->ki_pos;
 		size_t count = min_t(size_t, fc->max_read, iov_iter_count(to));
 		fl_owner_t owner = current->files;
-		pr_info("fuse_file_read_iter: offset=%lld, count=%zu\n", pos, count);
+		// pr_info("fuse_file_read_iter: offset=%lld, count=%zu\n", pos, count);
 
 		// count NOT SURE
 		fuse_read_args_fill(ia, file2, pos, count, FUSE_READ);

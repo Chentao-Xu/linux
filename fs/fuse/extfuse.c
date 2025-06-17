@@ -248,21 +248,32 @@ BPF_CALL_4(bpf_extfuse_write_args, void *, dst, u32, type, const void *, src,
 	struct extfuse_req *req= (struct extfuse_req *)dst;
 	unsigned numargs = req->out.numargs;
 
-	/* ===== 奇怪的魔改 start ===== */
-	if (type == READ_PASSTHROUGH) {
-
-		if (size != sizeof(struct read_passthrough_in))
+	/* ===== 缓存/直通 start ===== */
+	if (type == READ_MAP_CACHE) {
+		
+		if (size != sizeof(struct efuse_cache_in))
 			return -EINVAL;
 
-		struct read_passthrough_in *in = (struct read_passthrough_in *)src;
-		
-		// loff_t pos = in->offset;
+		struct efuse_cache_in *in = (struct efuse_cache_in *)src;
+
+		memcpy(req->out.args[0].value + in->copied, in->data->data + in->data_offset, in->copy_len);
+
+		req->out.args[0].size = in->copied + in->copy_len;
+		return in->copied + in->copy_len;
+	}
+
+	if (type == READ_PASSTHROUGH) {
+
+		if (size != sizeof(struct efuse_read_in))
+			return -EINVAL;
+
+		struct efuse_read_in *in = (struct efuse_read_in *)src;
 
 		if (!req || in->size <= 0)
 			return -EINVAL;
 
-		pr_info("read_passthrough_size: arg0_size:%d, wrong size: %d\n",
-				req->out.args[0].size, size);
+		// pr_info("read_passthrough_size: arg0_size:%d, wrong size: %d\n",
+				// req->out.args[0].size, size);
 
 		if (req->in.numargs < 2) {
 			return -EINVAL;
@@ -273,52 +284,68 @@ BPF_CALL_4(bpf_extfuse_write_args, void *, dst, u32, type, const void *, src,
 		}
 
 		loff_t file_size = i_size_read(file_inode(filp));
-		pr_info("read_passthrough_size: file size: %lld\n", file_size);
+		// pr_info("read_passthrough_size: file size: %lld\n", file_size);
 		if (in->offset >= file_size) {
-			pr_info("read_passthrough: offset beyond file size\n");
+			// pr_info("read_passthrough: offset beyond file size\n");
 			req->out.args[0].size = 0;
 			return 0; // 读取偏移超出文件大小，返回0表示EOF
+		}
+
+		if (in->size <= 0) {
+			// pr_info("read_passthrough: invalid size: %llu\n", in->size);
+			req->out.args[0].size = 0;
+			return 0;
 		}
 
 		size_t to_read = in->size;
 		if (in->offset + to_read > file_size)
 			to_read = file_size - in->offset;
 
-		pr_info("read_passthrough_size: to_read: %zu\n", to_read);
+		// pr_info("read_passthrough_size: to_read: %zu\n", to_read);
 
 		if (numargs < 1 || req->out.args[0].size < to_read) {
-			pr_info("Insufficient buffer size\n");
+			// pr_info("Insufficient buffer size\n");
 			return -EINVAL;
 		}
 
 		if (in->offset + to_read > file_size) {
-			pr_info("passed size exceeds file size\n");
+			// pr_info("passed size exceeds file size\n");
 			return -EINVAL;
 		}
 
 		outptr = req->out.args[0].value;
 
-		pr_info("test: fh=%llu, offset=%llu, size=%llu\n", in->fh, in->offset, in->size);
-		pr_info("test: outptr=%p, out_size=%d\n", req->out.args[0].value, req->out.args[0].size);
-		pr_info("test: filp=%p\n", filp);
-		pr_info("test: file_size=%lld, to_read=%zu\n", file_size, to_read);
+		// pr_info("test: fh=%llu, offset=%llu, size=%llu\n", in->fh, in->offset, in->size);
+		// pr_info("test: outptr=%p, out_size=%d\n", req->out.args[0].value, req->out.args[0].size);
+		// pr_info("test: filp=%p\n", filp);
+		// pr_info("test: file_size=%lld, to_read=%zu\n", file_size, to_read);
 
-		// loff_t pos = in->offset;
-		// ret = kernel_read(filp, outptr, to_read, &pos); //会导致虚拟机崩溃，不知道原因
-		// fput(filp);
+		if (to_read == in->size || to_read == req->out.args[0].size) {
+			// pr_info("read_passthrough: the twice request, size: %llu, out_size: %d\n",
+			// 		in->size, req->out.args[0].size);
+			// req->out.args[0].size = 0;
+			// return 0; // 防止虚拟机崩溃
+			
+			// 模拟测试
+			memset(outptr, 'x', to_read);
+			ret = to_read;
+			req->out.args[0].size = ret;
+			return ret; // 返回模拟数据
+		}
+
+		loff_t pos = in->offset;
+		ret = kernel_read(filp, outptr, to_read, &pos); // 可能会导致虚拟机崩溃，不知道原因
 
 		// 模拟测试
-		char a[] = "hello from bpf_passthrough";
-		memcpy(outptr, a, sizeof(a));
-		ret = max_t(size_t, sizeof(a), to_read);
+		memset(outptr, 'x', to_read);
+		ret = to_read;
 
 		if (ret < 0) {
 			memset(outptr, 0, in->size);
-			pr_info("read_passthrough: kernel_read failed: %d\n", ret);
+			// pr_info("read_passthrough: kernel_read failed: %d\n", ret);
 			return ret;
 		}
-		pr_info("read_passthrough: value: %s, size: %d\n",
-				(char *)req->out.args[0].value, ret);
+		// pr_info("read_passthrough: value: %s, size: %d\n", (char *)req->out.args[0].value, ret);
 
 		// 可选：更新实际读取的大小
 		req->out.args[0].size = ret;
@@ -326,7 +353,7 @@ BPF_CALL_4(bpf_extfuse_write_args, void *, dst, u32, type, const void *, src,
 		return ret;
 
 	}
-	/* ===== 奇怪的魔改 end ===== */
+	/* ===== 缓存/直通 end ===== */
 
 	if (type == OUT_PARAM_0 && numargs >= 1 && numargs <= 2 &&
 			size <= req->out.args[0].size) {
