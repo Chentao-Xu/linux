@@ -1,0 +1,64 @@
+  DESCEND objtool
+  DESCEND bpf/resolve_btfids
+  INSTALL libsubcmd_headers
+  INSTALL libsubcmd_headers
+  CALL    scripts/checksyscalls.sh
+  CHK     kernel/kheaders_data.tar.xz
+  CC      fs/fuse/file.o
+  CC      fs/fuse/inode.o
+  CC      fs/fuse/control.o
+  CC      fs/debugfs/inode.o
+  CC      fs/fuse/xattr.o
+fs/fuse/file.c: In function ‘do_dev’:
+fs/fuse/file.c:1692:10: error: ‘csd_sim_file’ undeclared (first use in this function); did you mean ‘d_is_file’?
+ 1692 |     if (!csd_sim_file) {
+      |          ^~~~~~~~~~~~
+      |          d_is_file
+fs/fuse/file.c:1692:10: note: each undeclared identifier is reported only once for each function it appears in
+In file included from ./include/linux/kernel.h:30,
+                 from ./arch/x86/include/asm/percpu.h:27,
+                 from ./arch/x86/include/asm/preempt.h:6,
+                 from ./include/linux/preempt.h:79,
+                 from ./include/linux/spinlock.h:56,
+                 from ./include/linux/wait.h:9,
+                 from ./include/linux/wait_bit.h:8,
+                 from ./include/linux/fs.h:6,
+                 from fs/fuse/fuse_i.h:17,
+                 from fs/fuse/file.c:9:
+fs/fuse/file.c:1708:57: error: ‘csd_sim_pos’ undeclared (first use in this function)
+ 1708 |         pr_info("do_dev: csd_sim_pos=%lld, size=%zu\n", csd_sim_pos, size);
+      |                                                         ^~~~~~~~~~~
+./include/linux/printk.h:427:33: note: in definition of macro ‘printk_index_wrap’
+  427 |                 _p_func(_fmt, ##__VA_ARGS__);                           \
+      |                                 ^~~~~~~~~~~
+./include/linux/printk.h:528:9: note: in expansion of macro ‘printk’
+  528 |         printk(KERN_INFO pr_fmt(fmt), ##__VA_ARGS__)
+      |         ^~~~~~
+fs/fuse/file.c:1708:9: note: in expansion of macro ‘pr_info’
+ 1708 |         pr_info("do_dev: csd_sim_pos=%lld, size=%zu\n", csd_sim_pos, size);
+      |         ^~~~~~~
+make[4]: *** [scripts/Makefile.build:243：fs/fuse/file.o] 错误 1
+make[4]: *** 正在等待未完成的任务....
+  CC      fs/debugfs/file.o
+  CC      fs/tracefs/inode.o
+  CC      fs/pstore/inode.o
+  CC      fs/pstore/platform.o
+  AR      fs/tracefs/built-in.a
+make[3]: *** [scripts/Makefile.build:480：fs/fuse] 错误 2
+make[3]: *** 正在等待未完成的任务....
+  CC      fs/efivarfs/inode.o
+  CC [M]  fs/pstore/ram.o
+  AR      fs/debugfs/built-in.a
+  CC      fs/efivarfs/file.o
+  CC [M]  fs/pstore/ram_core.o
+  CC      fs/efivarfs/super.o
+  CC      fs/efivarfs/vars.o
+  CC [M]  fs/pstore/zone.o
+  AR      fs/efivarfs/built-in.a
+  CC [M]  fs/pstore/blk.o
+  AR      fs/pstore/built-in.a
+  LD [M]  fs/pstore/ramoops.o
+  LD [M]  fs/pstore/pstore_zone.o
+  LD [M]  fs/pstore/pstore_blk.o
+make[2]: *** [scripts/Makefile.build:480：fs] 错误 2
+make[2]: *** 正在等待未完成的任务....

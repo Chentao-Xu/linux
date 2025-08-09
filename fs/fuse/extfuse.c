@@ -5,8 +5,345 @@
 
 #undef pr_fmt
 #define pr_fmt(fmt)	"ExtFUSE: " fmt
+static void rfuseargtransformerfromfc(const void **arg,struct fuse_conn *fc,struct rfuse_req *r_req,unsigned int index){
+	struct rfuse_iqueue *riq;
+	riq = rfuse_get_specific_iqueue(fc, r_req->riq_id);
+	*arg = (const void *)&riq->karg[index];
+}
+static void rfuseargtransformerfromfcout(void **arg,struct fuse_conn *fc,struct rfuse_req *r_req,unsigned int index){
+	struct rfuse_iqueue *riq;
+	riq = rfuse_get_specific_iqueue(fc, r_req->riq_id);
+	*arg = (const void *)&riq->karg[index];
+}
+static void fuseargtransformerfromfc(const void *arg,struct fuse_conn *fc,struct rfuse_req *r_req,unsigned int index){
+	struct rfuse_iqueue *riq;
+	riq = rfuse_get_specific_iqueue(fc, r_req->riq_id);
+	memcpy(&riq->karg[index], arg, r_req->out.arglen);
+}
 
+static uint8_t get_opcode_arg_count(uint32_t opcode) {
+    static const uint8_t arg_count_inmap[] = {
+        [FUSE_LOOKUP]    = 1,   // 需要文件名参数
+        [FUSE_GETATTR]   = 1,   // 文件属性请求
+		[FUSE_SETATTR]   = 1,
+		[FUSE_READLINK]  = 0,
+		[FUSE_SYMLINK]   = 2,
+		//FUSE_MKNOD无
+		[FUSE_MKDIR]     = 2,
+		[FUSE_UNLINK]    = 1,
+		[FUSE_RMDIR]     = 1,
+		[FUSE_RENAME]    = 3,
+		[FUSE_LINK]      = 2,
+		[FUSE_OPEN]      = 1,
+		[FUSE_READ]      = 1,
+		[FUSE_WRITE]     = 2,
+		[FUSE_STATFS]    = 0,
+		[FUSE_RELEASE]   = 1,
+		[FUSE_FSYNC]     = 1,
+		[FUSE_FLUSH]     = 1,
+		[FUSE_INIT]      = 1,
+		[FUSE_OPENDIR]   = 1,
+		[FUSE_READDIR]   = 1,
+		[FUSE_RELEASEDIR]= 1,
+		[FUSE_FSYNCDIR]  = 1,
+		[FUSE_ACCESS]    = 1,
+		[FUSE_CREATE]    = 2,
+		[FUSE_DESTROY]   = 0,
+		[FUSE_FALLOCATE] = 1,
+		[FUSE_READDIRPLUS]   = 1,
+		[FUSE_RENAME2]   = 3,
+    };
+    return   arg_count_inmap[opcode];
+}
+static uint8_t get_opcode_arg_count2(uint32_t opcode) {
+    static const uint8_t arg_count_outmap[] = {
+        [FUSE_LOOKUP]    = 1,   // 需要文件名参数
+        [FUSE_GETATTR]   = 1,   // 文件属性请求
+		[FUSE_SETATTR]   = 1,
+		[FUSE_READLINK]  = 1,
+		[FUSE_SYMLINK]   = 1,
+		//FUSE_MKNOD无
+		[FUSE_MKDIR]     = 1,
+		[FUSE_UNLINK]    = 0,
+		[FUSE_RMDIR]     = 0,
+		[FUSE_RENAME]    = 0,
+		[FUSE_LINK]      = 1,
+		[FUSE_OPEN]      = 1,
+		[FUSE_READ]      = 1,
+		[FUSE_WRITE]     = 1,
+		[FUSE_STATFS]    = 1,
+		[FUSE_RELEASE]   = 0,
+		[FUSE_FSYNC]     = 0,
+		[FUSE_FLUSH]     = 0,
+		[FUSE_INIT]      = 1,
+		[FUSE_OPENDIR]   = 1,
+		[FUSE_READDIR]   = 1,
+		[FUSE_RELEASE]   = 0,
+		[FUSE_FSYNCDIR]  = 0,
+		[FUSE_ACCESS]    = 0,
+		[FUSE_CREATE]    = 2,
+		[FUSE_DESTROY]   = 0,
+		[FUSE_FALLOCATE] = 0,
+		[FUSE_READDIRPLUS]   = 1,
+		[FUSE_RENAME2]   = 0,
+    };
+    return  arg_count_outmap[opcode];
+}
+static void rfusearg_to_fusearg(struct fuse_conn *fc,struct rfuse_req *r_req,struct extfuse_req *ereq)
+{
+	ereq->in.numargs = get_opcode_arg_count(r_req->in.opcode);
+	ereq->out.argvar = r_req->out_argvar;
+	ereq->out.numargs = get_opcode_arg_count2(r_req->in.opcode);
+
+	switch(r_req->in.opcode){
+		case FUSE_LOOKUP:
+			ereq->in.args[0].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[0].value,fc,r_req,r_req->in.arg[0]);
+			ereq->out.args[0].size=r_req->out.arglen;
+			rfuseargtransformerfromfcout(&ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_GETATTR:
+			ereq->in.args[0].size=sizeof(struct fuse_getattr_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=sizeof(struct fuse_attr_out);
+			ereq->out.args[0].value=&r_req->args;
+			//printk("aaabbbereq->in.h.nodeid:%d\n",ereq->in.h.nodeid);
+			break;
+		case FUSE_SETATTR:
+			ereq->in.args[0].size=sizeof(struct fuse_setattr_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=sizeof(struct fuse_attr_out);
+			ereq->out.args[0].value=&r_req->args;
+			break;
+		case FUSE_READLINK:
+			ereq->out.args[0].size=r_req->out.arglen;
+			break;
+		case FUSE_SYMLINK:
+			ereq->in.args[0].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[0].value,fc,r_req,r_req->in.arg[0]);
+			ereq->in.args[1].size=r_req->in.arglen[1];
+			rfuseargtransformerfromfc(&ereq->in.args[1].value,fc,r_req,r_req->in.arg[1]);
+			ereq->out.args[0].size=r_req->out.arglen;
+			rfuseargtransformerfromfcout(&ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_MKDIR:
+			ereq->in.args[0].size=sizeof(struct fuse_mkdir_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->in.args[1].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[1].value,fc,r_req,r_req->in.arg[0]);
+			ereq->out.args[0].size=r_req->out.arglen;
+			rfuseargtransformerfromfcout(&ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_UNLINK:
+			ereq->in.args[0].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[0].value,fc,r_req,r_req->in.arg[0]);
+			break;
+		case FUSE_RMDIR:
+			ereq->in.args[0].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[0].value,fc,r_req,r_req->in.arg[0]);
+			break;
+		case FUSE_RENAME:
+			ereq->in.args[0].size=sizeof(struct fuse_rename2_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->in.args[1].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[1].value,fc,r_req,r_req->in.arg[0]);
+			ereq->in.args[2].size=r_req->in.arglen[1];
+			rfuseargtransformerfromfc(&ereq->in.args[2].value,fc,r_req,r_req->in.arg[1]);
+			break;
+		case FUSE_LINK:
+			ereq->in.args[0].size=sizeof(struct fuse_link_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->in.args[1].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[1].value,fc,r_req,r_req->in.arg[0]);
+			ereq->out.args[0].size=r_req->out.arglen;
+			rfuseargtransformerfromfcout(&ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_OPEN:
+			ereq->in.args[0].size=sizeof(struct fuse_open_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=sizeof(struct fuse_open_in);
+			ereq->out.args[0].value=&r_req->args;
+			break;
+		case FUSE_READ:
+			ereq->in.args[0].size=sizeof(struct fuse_read_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=r_req->out.arglen;
+			break;
+		case FUSE_WRITE:
+			ereq->in.args[0].size=sizeof(struct fuse_write_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->in.args[1].size=r_req->in.arglen[0];
+			ereq->out.args[0].size=sizeof(struct fuse_write_out);
+			ereq->out.args[0].value=&r_req->args;
+			break;
+		case FUSE_STATFS:
+			ereq->out.args[0].size=sizeof(struct fuse_statfs_out);
+			ereq->out.args[0].value=&r_req->args;
+			break;
+		case FUSE_RELEASE:
+			ereq->in.args[0].size=sizeof(struct fuse_release_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_FSYNC:
+			ereq->in.args[0].size=sizeof(struct fuse_fsync_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_FLUSH:
+			ereq->in.args[0].size=sizeof(struct fuse_flush_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_INIT:
+			ereq->in.args[0].size=sizeof(struct fuse_init_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=sizeof(struct fuse_statfs_out);
+			ereq->out.args[0].value=&r_req->args;
+			break;
+		case FUSE_OPENDIR:
+			ereq->in.args[0].size=sizeof(struct fuse_open_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=sizeof(struct fuse_open_in);
+			ereq->out.args[0].value=&r_req->args;
+			break;
+		case FUSE_READDIR:
+			ereq->in.args[0].size=sizeof(struct fuse_read_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=r_req->out.arglen;
+			break;
+		case FUSE_RELEASEDIR:
+			ereq->in.args[0].size=sizeof(struct fuse_release_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_FSYNCDIR:
+			ereq->in.args[0].size=sizeof(struct fuse_fsync_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_ACCESS:
+			ereq->in.args[0].size=sizeof(struct fuse_access_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_CREATE:
+			ereq->in.args[0].size=sizeof(struct fuse_create_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->in.args[1].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[1].value,fc,r_req,r_req->in.arg[0]);
+			ereq->out.args[0].size=r_req->out.arglen;
+			rfuseargtransformerfromfcout(&ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			ereq->out.args[1].size=sizeof(struct fuse_open_out);
+			ereq->out.args[1].value=&r_req->args;
+			break;
+		case FUSE_FALLOCATE:
+			ereq->in.args[0].size=sizeof(struct fuse_fallocate_in);
+			ereq->in.args[0].value=&r_req->args;
+			break;
+		case FUSE_READDIRPLUS:
+			ereq->in.args[0].size=sizeof(struct fuse_read_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->out.args[0].size=r_req->out.arglen;
+			break;
+		case FUSE_RENAME2:
+			ereq->in.args[0].size=sizeof(struct fuse_rename2_in);
+			ereq->in.args[0].value=&r_req->args;
+			ereq->in.args[1].size=r_req->in.arglen[0];
+			rfuseargtransformerfromfc(&ereq->in.args[1].value,fc,r_req,r_req->in.arg[0]);
+			ereq->in.args[1].value=r_req->in.arg[0];
+			ereq->in.args[2].size=r_req->in.arglen[1];
+			rfuseargtransformerfromfc(&ereq->in.args[2].value,fc,r_req,r_req->in.arg[1]);
+			break;
+		default:
+			break;
+		}
+}
+static void fusearg_to_rfuseargout(struct fuse_conn *fc,struct rfuse_req *r_req,struct extfuse_req *ereq)
+{
+	switch(r_req->in.opcode){
+		case FUSE_LOOKUP:
+			r_req->out.arglen = ereq->out.args[0].size;
+			fuseargtransformerfromfc(ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_GETATTR:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_SETATTR:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_READLINK:
+			r_req->out.arglen = ereq->out.args[0].size;
+			break;
+		case FUSE_SYMLINK:
+			r_req->out.arglen = ereq->out.args[0].size;
+			fuseargtransformerfromfc(ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_MKDIR:
+			r_req->out.arglen = ereq->out.args[0].size;
+			fuseargtransformerfromfc(ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_UNLINK:
+			break;
+		case FUSE_RMDIR:
+			break;
+		case FUSE_RENAME:
+			break;
+		case FUSE_LINK:
+			r_req->out.arglen = ereq->out.args[0].size;
+			fuseargtransformerfromfc(ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			break;
+		case FUSE_OPEN:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_READ:
+			r_req->out.arglen = ereq->out.args[0].size;
+			break;
+		case FUSE_WRITE:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_STATFS:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_RELEASE:
+			break;
+		case FUSE_FSYNC:
+			break;
+		case FUSE_FLUSH:
+			break;
+		case FUSE_INIT:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_OPENDIR:
+			memcpy(&r_req->args, ereq->out.args[0].value, ereq->out.args[0].size);
+			break;
+		case FUSE_READDIR:
+			r_req->out.arglen = ereq->out.args[0].size;
+			break;
+		case FUSE_RELEASEDIR:
+			break;
+		case FUSE_FSYNCDIR:
+			break;
+		case FUSE_ACCESS:
+			break;
+		case FUSE_CREATE:
+			r_req->out.arglen = ereq->out.args[0].size;
+			fuseargtransformerfromfc(ereq->out.args[0].value,fc,r_req,r_req->out.arg);
+			memcpy(&r_req->args, ereq->out.args[1].value, ereq->out.args[1].size);
+			break;
+		case FUSE_FALLOCATE:
+			break;
+		case FUSE_READDIRPLUS:
+			r_req->out.arglen = ereq->out.args[0].size;
+			break;
+		case FUSE_RENAME2:
+			break;
+		default:
+			break;
+		}
+}
 /* create a copy of args for extfuse request handlers */
+static void rfuse_to_extfuse_req(struct fuse_conn *fc,struct rfuse_req *r_req,
+		struct extfuse_req *ereq)
+{
+	ereq->in.h.opcode = r_req->in.opcode;
+	ereq->in.h.nodeid = r_req->in.nodeid;
+	rfusearg_to_fusearg(fc,r_req,ereq);
+}
 static void fuse_to_extfuse_req(struct fuse_req *req,
 		struct extfuse_req *ereq)
 {
@@ -20,7 +357,12 @@ static void fuse_to_extfuse_req(struct fuse_req *req,
 	memcpy(ereq->out.args, req->args->out_args,
 			req->args->out_numargs * sizeof(struct fuse_arg));
 }
-
+static void extfuse_to_rfuse_req(struct fuse_conn *fc,struct extfuse_req *ereq,
+		struct rfuse_req *r_req)
+{
+	r_req->out_argvar = ereq->out.argvar;
+	fusearg_to_rfuseargout(fc,r_req,ereq);
+}
 /* only copy out args */
 static void extfuse_to_fuse_req(struct extfuse_req *ereq,
 		struct fuse_req *req)
@@ -31,6 +373,7 @@ static void extfuse_to_fuse_req(struct extfuse_req *ereq,
 			ereq->out.numargs * sizeof(struct fuse_arg));
 }
 
+static void sim_kernel_read(void *buf, size_t to_read);
 
 static int extfuse_run_prog(struct bpf_prog *eprog, struct extfuse_req *ereq)
 {
@@ -41,7 +384,11 @@ static int extfuse_run_prog(struct bpf_prog *eprog, struct extfuse_req *ereq)
 	if (prog) {
 		/* run program */
 		rcu_read_lock();
+		//printk("eeeeeeextfuse ereqop:%d\n",ereq->in.h.opcode);
+		//printk("eeeeeeextfuse prog:%d\n",prog->type);
+		//printk("eeeeeeextfuse progid:%d\n",prog->aux->id);
 		ret = bpf_prog_run(prog, ereq);
+		//printk("eeeeeeextfuse ret:%d\n",ret);
 		rcu_read_unlock();
 	}
 
@@ -60,6 +407,28 @@ int extfuse_request_send(struct fuse_conn *fc, struct fuse_req *req)
 		if (ret != -ENOSYS) {
 			extfuse_to_fuse_req(&ereq, req);
 			req->out.h.error = (int)ret;
+			ret = 0;
+		}
+	}
+	return ret;
+}
+
+int extfuse_request_send2(struct fuse_conn *fc,struct rfuse_req *req)
+{
+	struct extfuse_data *data = (struct extfuse_data *)fc->fc_priv;
+	ssize_t ret = -ENOSYS;
+	//("aaaaaaaaaaextfuse\n");
+
+	if (data) {
+		struct extfuse_req ereq;
+		//printk("bbbbbbbbbextfuse\n");
+		rfuse_to_extfuse_req(fc,req, &ereq);
+		//printk("ddddddddddddextfuse\n");
+		ret = extfuse_run_prog(data->prog, &ereq);
+		//printk("cccccccccextfuseret:%d\n",ret);
+		if (ret != -ENOSYS) {
+			extfuse_to_rfuse_req(fc,&ereq, req);
+			req->out.error = (int)ret;
 			ret = 0;
 		}
 	}
@@ -325,18 +694,14 @@ BPF_CALL_4(bpf_extfuse_write_args, void *, dst, u32, type, const void *, src,
 			// 		in->size, req->out.args[0].size);
 			// req->out.args[0].size = 0;
 			// return 0; // 防止虚拟机崩溃
-			
-			// 模拟测试
-			memset(outptr, 'x', to_read);
+			sim_kernel_read(outptr, to_read);
 			ret = to_read;
 			req->out.args[0].size = ret;
-			return ret; // 返回模拟数据
+			return ret;
 		}
 
 		loff_t pos = in->offset;
-		ret = kernel_read(filp, outptr, to_read, &pos); // 可能会导致虚拟机崩溃，不知道原因
-
-		// 模拟测试
+		ret = kernel_read(filp, outptr, to_read, &pos); // 从文件中读取数据
 		memset(outptr, 'x', to_read);
 		ret = to_read;
 
@@ -537,6 +902,26 @@ BPF_CALL_4(bpf_extfuse_read_passthrough, void *, dst, u64, file_handle, u64, off
     return ret;
 }
 
+void sim_kernel_read(void *outptr, size_t to_read)
+{
+	size_t delay_us = (to_read / 4096) * 200;
+	if (delay_us == 0)
+	delay_us = 100;
+
+	delay_us = delay_us + (get_random_u32() % (delay_us / 5 + 1)) - (delay_us / 10);
+
+	if (delay_us < 50)
+		delay_us = 50;
+
+	if (delay_us < 2000)
+		usleep_range(delay_us, delay_us + 50); 
+	else
+		msleep(delay_us / 1000);
+
+	// 模拟测试
+	memset(outptr, 'x', to_read);
+}
+
 static const struct bpf_func_proto bpf_extfuse_read_passthrough_proto = {
     .func       = bpf_extfuse_read_passthrough,
     .gpl_only   = true,
@@ -556,23 +941,23 @@ bpf_extfuse_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
 	case BPF_FUNC_extfuse_write_args:
 		return &bpf_extfuse_write_args_proto;
 
-	case BPF_FUNC_helper_memcpy:
-		return &bpf_helper_memcpy_proto;
-	case BPF_FUNC_malloc:
-        return &bpf_malloc_proto;
-    case BPF_FUNC_free:
-        return &bpf_free_proto;
-    case BPF_FUNC_mem_read:
-        return &bpf_mem_read_proto;
-	case BPF_FUNC_mem_write:
-		return &bpf_mem_write_proto;
-	case BPF_FUNC_memcmp:
-		return &sbpf_memcmp_proto;
-	case BPF_FUNC_memset:
-		return &sbpf_memset_proto;
+	// case BPF_FUNC_helper_memcpy:
+	// 	return &bpf_helper_memcpy_proto;
+	// case BPF_FUNC_malloc:
+    //     return &bpf_malloc_proto;
+    // case BPF_FUNC_free:
+    //     return &bpf_free_proto;
+    // case BPF_FUNC_mem_read:
+    //     return &bpf_mem_read_proto;
+	// case BPF_FUNC_mem_write:
+	// 	return &bpf_mem_write_proto;
+	// case BPF_FUNC_memcmp:
+	// 	return &sbpf_memcmp_proto;
+	// case BPF_FUNC_memset:
+	// 	return &sbpf_memset_proto;
 
-	case BPF_FUNC_extfuse_read_passthrough:
-		return &bpf_extfuse_read_passthrough_proto;
+	// case BPF_FUNC_extfuse_read_passthrough:
+	// 	return &bpf_extfuse_read_passthrough_proto;
 
 	case BPF_FUNC_map_lookup_elem:
 		return &bpf_map_lookup_elem_proto;

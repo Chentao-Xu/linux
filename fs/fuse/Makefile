@@ -3,12 +3,18 @@
 # Makefile for the FUSE filesystem.
 #
 
+# Uncomment below line to compile with debug option 
+# ccflags-y += -DDEBUG
+#obj-m += fuse.o
 obj-$(CONFIG_FUSE_FS) += fuse.o
 obj-$(CONFIG_CUSE) += cuse.o
 obj-$(CONFIG_EXTFUSE) += extfuse.o
-obj-$(CONFIG_VIRTIO_FS) += virtiofs.o
 
-fuse-y := dev.o dir.o file.o inode.o control.o xattr.o acl.o readdir.o ioctl.o
+fuse-y := dev.o dir.o file.o inode.o control.o xattr.o acl.o readdir.o ioctl.o rfuse_dev.o rfuse_dir.o rfuse_inode.o rfuse_file.o rfuse_comp.o 
 fuse-$(CONFIG_FUSE_DAX) += dax.o
 
-virtiofs-y := virtio_fs.o
+# all:
+# 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) modules
+ 
+# clean:
+# 	make -C /lib/modules/$(shell uname -r)/build M=$(PWD) clean
