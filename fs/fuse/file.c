@@ -1849,100 +1849,6 @@ static ssize_t try_internal_read(struct file *file2, struct fuse_mount *fm,
 	return ret;
 }
 
-// static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
-// {
-// 	struct file *file = iocb->ki_filp;
-// 	struct fuse_file *ff = file->private_data;
-// 	struct inode *inode = file_inode(file);
-
-// 	if (fuse_is_bad(inode))
-// 		return -EIO;
-
-// 	if (FUSE_IS_DAX(inode))
-// 		return fuse_dax_read_iter(iocb, to);
-
-// 	if (!(ff->open_flags & FOPEN_DIRECT_IO)) {
-
-// 		/* ======== EFUSE hook for read start ======== */
-// 		struct fuse_io_priv io = FUSE_IO_PRIV_SYNC(iocb);
-// 		struct file *file2 = io.iocb->ki_filp;
-// 		struct fuse_file *ff2 = file2->private_data;
-// 		struct fuse_mount *fm = ff2->fm;
-// 		struct fuse_conn *fc = fm->fc;
-// 		unsigned int max_pages = iov_iter_npages(to, fc->max_pages);
-// 		struct fuse_io_args *ia = fuse_io_alloc(&io, max_pages);
-// 		loff_t pos = iocb->ki_pos;
-// 		size_t count = min_t(size_t, fc->max_read, iov_iter_count(to));
-// 		fl_owner_t owner = current->files;
-// 		// pr_info("fuse_file_read_iter: offset=%lld, count=%zu\n", pos, count);
-
-// 		// count NOT SURE
-// 		fuse_read_args_fill(ia, file2, pos, count, FUSE_READ);
-// 		struct fuse_args *args = &ia->ap.args;
-// 		args->in_numargs = 2;
-// 		args->in_args[1].size = sizeof(file2);
-// 		args->in_args[1].value = &file2;
-// 		if (owner != NULL) {
-// 			ia->read.in.read_flags |= FUSE_READ_LOCKOWNER;
-// 			ia->read.in.lock_owner = fuse_lock_owner_id(fc, owner);
-// 		}
-
-// 		size_t file_size = i_size_read(file_inode(file2));
-// 		ssize_t ret = do_dev(file_size, to);
-// 		pr_info("EXT-FUSE read: do_dev returned %zd\n", ret);
-// 		if (ret >= 0) {
-// 			pr_info("EXT-FUSE read: do_dev success\n");
-// 			iocb->ki_pos += ret;
-// 			kfree(ia);
-// 			return ret;
-// 		}
-// 		pr_info("EXT-FUSE read: do_dev fail\n");
-
-// 		// 分配输出缓冲区供 BPF 写入
-// 		void *bpf_output_buf = kzalloc(count, GFP_KERNEL);
-// 		if (!bpf_output_buf) {
-// 			kfree(ia);  // 清理已分配 fuse_io_args
-// 			pr_info("EXT-FUSE read: failed to allocate output buffer\n");
-// 			goto fallback;
-// 		}
-// 		args->out_args[0].size = count;
-// 		args->out_args[0].value = bpf_output_buf;
-// 		args->out_numargs = 1;
-
-// 		ret = fuse_read_request(fm, args);
-
-// 		// 如果 BPF 成功处理 read 请求，直接从 args->out 中获取数据
-// 		if (ret >= 0) {
-// 			void *data = args->out_args[0].value;
-// 			size_t data_size = args->out_args[0].size;
-
-// 			if (data && data_size > 0) {
-// 				ssize_t copied = copy_to_iter(data, data_size, to);
-// 				pr_info("EXT-FUSE read: copied %zd bytes from BPF to user\n", copied);
-// 				iocb->ki_pos += copied;
-// 				kfree(bpf_output_buf);
-// 				kfree(ia);
-// 				return copied;
-// 			} else {
-// 				pr_info("EXT-FUSE read: BPF returned no data\n");
-// 				kfree(bpf_output_buf);
-// 				kfree(ia);
-// 				return 0;
-// 			}
-// 		}
-
-// 		kfree(bpf_output_buf);
-// 		kfree(ia);
-// 		/* ======== EFUSE hook for read end ======== */
-
-// 		fallback:
-
-// 		return fuse_cache_read_iter(iocb, to);
-// 	} else {
-// 		return fuse_direct_read_iter(iocb, to);
-// 	}
-// }
-
 static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 {
 	struct file *file = iocb->ki_filp;
@@ -2004,7 +1910,14 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 			start = ktime_get_ns();
 
 			if (req_id < HALF_PROF_ITERS) {
-				// 前半段：do_dev
+        // 前半段：try_internal_read
+				// pr_info("profiling: try_internal_read phase\n");
+				ret = try_internal_read(file2, fm, args, to, count, iocb);
+				delta = ktime_get_ns() - start;
+				// pr_info("req_id=%lld: try_internal_read returned %zd, time=%llu ns\n", req_id, ret, delta);
+				prof->kern_time[index] = (ret < 0) ? U64_MAX : delta;
+			} else {
+				// 后半段：do_dev
 				// pr_info("profiling: do_dev phase\n");
 				ret = do_dev(file_size, &pos, count, to);
 				delta = ktime_get_ns() - start;
@@ -2013,13 +1926,6 @@ static ssize_t fuse_file_read_iter(struct kiocb *iocb, struct iov_iter *to)
 				if (ret >= 0) {
 					iocb->ki_pos += ret;  // do_dev 更新 offset
 				}
-			} else {
-				// 后半段：try_internal_read
-				// pr_info("profiling: try_internal_read phase\n");
-				ret = try_internal_read(file2, fm, args, to, count, iocb);
-				delta = ktime_get_ns() - start;
-				// pr_info("req_id=%lld: try_internal_read returned %zd, time=%llu ns\n", req_id, ret, delta);
-				prof->kern_time[index] = (ret < 0) ? U64_MAX : delta;
 			}
 
 			// profiling 结束判断
